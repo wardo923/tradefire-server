@@ -9,7 +9,7 @@ app.use(cors());
 
 /* HEALTH CHECK */
 app.get("/health", (req, res) => {
-  res.status(200).json({
+  res.status(200).json({ 
     ok: true,
     service: "tradefire-server",
     time: new Date().toISOString(),
