@@ -1,7 +1,4 @@
-/**
- * TradeFire Server — Railway Safe MVP
- * Express + Health Check + Webhook Alerts
- */
+// server.js (CommonJS) — Railway-ready TradeFire webhook server
 
 const express = require("express");
 const cors = require("cors");
@@ -9,38 +6,25 @@ const nodemailer = require("nodemailer");
 const twilio = require("twilio");
 
 const app = express();
-app.use(express.json());
+
+// ─────────────────────────────────────────────────────────────
+// Middleware
+// ─────────────────────────────────────────────────────────────
+app.use(express.json({ limit: "1mb" }));
 app.use(cors());
 
-/* =====================================================
-   ENV
-===================================================== */
+// ─────────────────────────────────────────────────────────────
+// In-memory stores (MVP)
+// NOTE: resets on redeploy/restart
+// ─────────────────────────────────────────────────────────────
+const PROFILES = {};      // profileId -> { ...profile, status, createdAt, activatedAt }
+const subscribers = [];   // { name, email, phone, alertMethods: ["email","sms"] }
 
-const PORT = process.env.PORT || 3000;
-
-// Optional services (safe if unset)
-const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_FROM = process.env.TWILIO_FROM;
-
-const EMAIL_HOST = process.env.EMAIL_HOST;
-const EMAIL_PORT = process.env.EMAIL_PORT;
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
-
-/* =====================================================
-   IN-MEMORY STORES (MVP)
-===================================================== */
-
-const PROFILES = {};
-const subscribers = [];
-
-/* =====================================================
-   HEALTH + ROOT (Railway requires this)
-===================================================== */
-
+// ─────────────────────────────────────────────────────────────
+// Health + Root
+// ─────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.status(200).send("TradeFire server is running");
+  res.status(200).send("TradeFire server is running ✅");
 });
 
 app.get("/health", (req, res) => {
@@ -51,146 +35,166 @@ app.get("/health", (req, res) => {
   });
 });
 
-/* =====================================================
-   CREATE STRATEGY PROFILE
-===================================================== */
-
+// ─────────────────────────────────────────────────────────────
+// Wizard → Save Strategy Profile (MVP)
+// POST /api/profile
+// body: { name, market, timeframe, pattern, riskStyle, ...any }
+// ─────────────────────────────────────────────────────────────
 app.post("/api/profile", (req, res) => {
-  const { name, market, timeframe, risk } = req.body;
-
-  if (!name || !market || !timeframe) {
-    return res.status(400).json({ error: "Missing fields" });
-  }
-
-  const profileId = `pf_${Date.now()}`;
+  const profile = req.body || {};
+  const profileId = `pf_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
   PROFILES[profileId] = {
     profileId,
-    name,
-    market,
-    timeframe,
-    risk: risk || "standard",
-    status: "inactive",
+    ...profile,
+    status: "draft",
     createdAt: Date.now(),
   };
 
-  res.status(201).json({ profileId, status: "created" });
+  res.status(201).json({ ok: true, profileId, status: PROFILES[profileId].status });
 });
 
-/* =====================================================
-   ACTIVATE STRATEGY
-===================================================== */
-
+// ─────────────────────────────────────────────────────────────
+// Activate Strategy
+// POST /api/activate
+// body: { profileId }
+// ─────────────────────────────────────────────────────────────
 app.post("/api/activate", (req, res) => {
-  const { profileId } = req.body;
+  const { profileId } = req.body || {};
 
   if (!profileId || !PROFILES[profileId]) {
-    return res.status(400).json({ error: "Invalid profileId" });
+    return res.status(400).json({ ok: false, error: "Invalid profileId" });
   }
 
   PROFILES[profileId].status = "active";
   PROFILES[profileId].activatedAt = Date.now();
 
-  res.json({ profileId, status: "active" });
+  res.json({ ok: true, profileId, status: "active" });
 });
 
-/* =====================================================
-   SUBSCRIBE USER (EMAIL / SMS)
-===================================================== */
-
+// ─────────────────────────────────────────────────────────────
+// Subscribe user (email / sms)
+// POST /subscribe
+// body: { name, email, phone, alertMethods: ["email","sms"] }
+// ─────────────────────────────────────────────────────────────
 app.post("/subscribe", (req, res) => {
-  const { name, email, phone, alertMethods } = req.body;
+  const { name, email, phone, alertMethods } = req.body || {};
 
-  if (!alertMethods || !Array.isArray(alertMethods)) {
-    return res.status(400).json({ error: "alertMethods required" });
+  if (!name) return res.status(400).json({ ok: false, error: "Missing name" });
+
+  const methods = Array.isArray(alertMethods) ? alertMethods : [];
+
+  if (methods.includes("email") && !email) {
+    return res.status(400).json({ ok: false, error: "Missing email for email alerts" });
+  }
+  if (methods.includes("sms") && !phone) {
+    return res.status(400).json({ ok: false, error: "Missing phone for sms alerts" });
   }
 
-  subscribers.push({ name, email, phone, alertMethods });
+  subscribers.push({ name, email, phone, alertMethods: methods });
 
   res.json({ ok: true, total: subscribers.length });
 });
 
-/* =====================================================
-   ALERT DELIVERY HELPERS
-===================================================== */
-
-async function sendEmail(to, subject, text) {
-  if (!EMAIL_HOST) return;
-
-  const transporter = nodemailer.createTransport({
-    host: EMAIL_HOST,
-    port: Number(EMAIL_PORT),
-    secure: false,
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS,
-    },
-  });
-
-  await transporter.sendMail({
-    from: `"TradeFire" <${EMAIL_USER}>`,
-    to,
-    subject,
-    text,
-  });
-}
-
-async function sendSMS(to, body) {
-  if (!TWILIO_SID) return;
-
-  const client = twilio(TWILIO_SID, TWILIO_TOKEN);
-  await client.messages.create({
-    from: TWILIO_FROM,
-    to,
-    body,
-  });
-}
-
-/* =====================================================
-   WEBHOOK (SIGNAL → ALERTS)
-===================================================== */
-
+// ─────────────────────────────────────────────────────────────
+// Webhook (TradingView → Alerts)
+// POST /webhook
+// body: { symbol, signal, dir, price, ts?, note? }
+// Example:
+// { "symbol":"SPY", "signal":"ORB Breakout", "dir":"LONG", "price": 501.23 }
+// ─────────────────────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
-  const { symbol, signal, dir, price } = req.body;
+  try {
+    const { symbol, signal, dir, price } = req.body || {};
 
-  if (!symbol || !signal || !dir || typeof price !== "number") {
-    return res.status(400).json({ error: "Missing signal data" });
-  }
+    if (!symbol || !signal || !dir || typeof price !== "number") {
+      return res.status(400).json({
+        ok: false,
+        error: "Missing required fields. Need: symbol, signal, dir, price(number)",
+      });
+    }
 
-  const sl = dir === "LONG" ? price * 0.985 : price * 1.015;
-  const tp = dir === "LONG" ? price * 1.03 : price * 0.97;
+    // Simple MVP SL/TP (you can replace later)
+    const sl = dir === "LONG" ? price * 0.985 : price * 1.015;
+    const tp = dir === "LONG" ? price * 1.03 : price * 0.97;
 
-  const msg = `
-🔥 ${dir} ${symbol}
+    const msg =
+`🔥 ${dir} ${symbol}
 Signal: ${signal}
 Entry: ${price.toFixed(2)}
 SL: ${sl.toFixed(2)}
-TP: ${tp.toFixed(2)}
-`;
+TP: ${tp.toFixed(2)}`;
 
-  let delivered = 0;
-
-  for (const sub of subscribers) {
-    try {
-      if (sub.alertMethods.includes("email") && sub.email) {
-        await sendEmail(sub.email, "TradeFire Alert", msg);
+    let delivered = 0;
+    for (const sub of subscribers) {
+      try {
+        if (sub.alertMethods.includes("email")) {
+          await sendEmail(sub.email, `TradeFire Alert: ${symbol} ${dir}`, msg);
+        }
+        if (sub.alertMethods.includes("sms")) {
+          await sendSMS(sub.phone, msg);
+        }
+        delivered++;
+      } catch (e) {
+        console.log("Delivery error:", e?.message || e);
       }
-      if (sub.alertMethods.includes("sms") && sub.phone) {
-        await sendSMS(sub.phone, msg);
-      }
-      delivered++;
-    } catch (e) {
-      console.log("Delivery error:", e.message);
     }
-  }
 
-  res.json({ ok: true, delivered, subscribers: subscribers.length });
+    return res.json({ ok: true, delivered, subscribers: subscribers.length });
+  } catch (err) {
+    console.log("Webhook error:", err?.message || err);
+    return res.status(500).json({ ok: false, error: "Server error" });
+  }
 });
 
-/* =====================================================
-   START SERVER (Railway critical)
-===================================================== */
+// ─────────────────────────────────────────────────────────────
+// EMAIL (Nodemailer)
+// Requires env vars (recommended):
+// SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+// ─────────────────────────────────────────────────────────────
+async function sendEmail(to, subject, text) {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || "587");
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.EMAIL_FROM || process.env.SMTP_USER;
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 TradeFire server listening on port ${PORT}`);
+  if (!host || !user || !pass || !from) {
+    throw new Error("Email not configured (missing SMTP_* or EMAIL_FROM env vars)");
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465, // true for 465, false for others
+    auth: { user, pass },
+  });
+
+  await transporter.sendMail({ from, to, subject, text });
+}
+
+// ─────────────────────────────────────────────────────────────
+// SMS (Twilio)
+// Requires env vars:
+// TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM
+// ─────────────────────────────────────────────────────────────
+async function sendSMS(to, body) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM;
+
+  if (!sid || !token || !from) {
+    throw new Error("SMS not configured (missing TWILIO_* env vars)");
+  }
+
+  const client = twilio(sid, token);
+  await client.messages.create({ from, to, body });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Start server (Railway uses PORT)
+// ─────────────────────────────────────────────────────────────
+const PORT = Number(process.env.PORT || "3000");
+app.listen(PORT, () => {
+  console.log(`TradeFire server live on port ${PORT}`);
 });
