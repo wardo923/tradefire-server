@@ -21,7 +21,9 @@ app.get("/health", (req, res) => {
     time: new Date().toISOString(),
   });
 });
-
+app.get("/", (req, res) => {
+  res.status(200).send("TradeFire server is running ✅");
+});
 /* ─────────────────────────────
    TEMP IN-MEMORY STORES (MVP)
 ───────────────────────────── */
