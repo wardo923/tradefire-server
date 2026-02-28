@@ -1,7 +1,6 @@
 {
   "name": "tradefire-server",
   "version": "1.0.0",
-"description": "trigger deploy"
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
