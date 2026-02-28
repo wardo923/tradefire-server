@@ -10,8 +10,8 @@
     "node": ">=18"
   },
   "dependencies": {
-    "express": "^4.19.2",
     "cors": "^2.8.5",
+    "express": "^4.19.2",
     "nodemailer": "^6.9.13",
     "twilio": "^4.23.0"
   }
