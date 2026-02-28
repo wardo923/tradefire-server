@@ -1,38 +1,36 @@
-import express from "express";
-import cors from "cors";
+const express = require("express");
+const cors = require("cors");
 
 const app = express();
 
-// Railway requires this
+// Railway sets PORT automatically
 const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// ROOT ROUTE (THIS FIXES YOUR ERROR)
+// Root route (fixes Cannot GET /)
 app.get("/", (req, res) => {
   res.status(200).send("TradeFire Server is LIVE 🚀");
 });
 
-// HEALTH CHECK (Railway loves this)
+// Health route
 app.get("/health", (req, res) => {
   res.status(200).json({
-    status: "ok",
+    ok: true,
+    service: "tradefire-server",
     uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
+    time: new Date().toISOString(),
   });
 });
 
-// Catch-all safety (prevents Railway 404 page)
+// Catch-all (prevents weird blank 404s)
 app.use((req, res) => {
-  res.status(404).json({
-    error: "Route not found",
-    path: req.originalUrl,
-  });
+  res.status(404).json({ error: "Route not found", path: req.originalUrl });
 });
 
-// START SERVER
+// IMPORTANT: listen on PORT and 0.0.0.0
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🔥 TradeFire server running on port ${PORT}`);
 });
