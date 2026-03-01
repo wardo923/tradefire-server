@@ -1,13 +1,16 @@
 {
   "name": "tradefire-server",
   "version": "1.0.0",
-  "main": "server.js",
+  "description": "TradeFire webhook server",
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "express": "^4.18.3"
   }
 }
