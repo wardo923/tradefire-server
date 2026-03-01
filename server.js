@@ -1,40 +1,23 @@
-// server.js
-const http = require("http");
+import express from "express";
+import cors from "cors";
 
-const PORT = Number(process.env.PORT) || 3000;
+const app = express();
 
-// Simple router without any dependencies
-const server = http.createServer((req, res) => {
-  // Always return plain text unless /health
-  if (req.url === "/" && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    return res.end("OK");
-  }
+app.use(cors());
+app.use(express.json());
 
-  if (req.url === "/health" && req.method === "GET") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, status: "healthy" }));
-  }
+const PORT = process.env.PORT || 8080;
 
-  // Optional: webhook endpoint (POST)
-  if (req.url === "/webhook" && req.method === "POST") {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
-      // Log the raw body so you can see it in Railway logs
-      console.log("Webhook received:", body);
-
-      res.writeHead(200, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ ok: true, received: true }));
-    });
-    return; 
-  }
-
-  // Anything else
-  res.writeHead(404, { "Content-Type": "text/plain" });
-  return res.end("Not Found");
+// Root route
+app.get("/", (req, res) => {
+  res.send("TradeFire Server Running");
 });
 
-server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+// Health check
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
