@@ -1,31 +1,40 @@
 // server.js
-const express = require("express");
+const http = require("http");
 
-const app = express();
+const PORT = Number(process.env.PORT) || 3000;
 
-// Railway/Cloud uses PORT env var. MUST use this.
-const PORT = process.env.PORT || 8080;
+// Simple router without any dependencies
+const server = http.createServer((req, res) => {
+  // Always return plain text unless /health
+  if (req.url === "/" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    return res.end("OK");
+  }
 
-// Parse JSON bodies
-app.use(express.json({ limit: "2mb" }));
+  if (req.url === "/health" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ ok: true, status: "healthy" }));
+  }
 
-// Basic home route (so "/" does NOT show Cannot GET /)
-app.get("/", (req, res) => {
-  res.status(200).send("TradeFire server running ✅");
+  // Optional: webhook endpoint (POST)
+  if (req.url === "/webhook" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      // Log the raw body so you can see it in Railway logs
+      console.log("Webhook received:", body);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, received: true }));
+    });
+    return;
+  }
+
+  // Anything else
+  res.writeHead(404, { "Content-Type": "text/plain" });
+  return res.end("Not Found");
 });
 
-// Health check route (so "/health" works)
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok" });
-});
-
-// Example webhook endpoint (TradingView / alerts can POST here)
-app.post("/webhook", (req, res) => {
-  console.log("Webhook received:", req.body);
-  res.status(200).json({ received: true });
-});
-
-// Start server
-app.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
